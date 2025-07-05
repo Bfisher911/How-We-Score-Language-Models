@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How We Score Language Models</title>
+    
+    <!-- Google Fonts: Inter for a clean, modern look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS for utility-first styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MathJax for rendering LaTeX formulas -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        /* Custom CSS for animations, layout, and specific component styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            scroll-behavior: smooth;
+        }
+
+        /* --- Card Flip Animation --- */
+        .flip-card {
+            background-color: transparent;
+            perspective: 1000px; /* Gives the 3D effect */
+        }
+
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.8s;
+            transform-style: preserve-3d;
+        }
+
+        /* The 'flipped' class is added via JavaScript to trigger the animation */
+        .flip-card.flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden; /* For Safari */
+            backface-visibility: hidden;
+            border-radius: 0.75rem; /* rounded-xl */
+        }
+
+        .flip-card-back {
+            transform: rotateY(180deg);
+        }
+
+        /* --- Gauge Animation --- */
+        .gauge-meter {
+            stroke-dasharray: 314; /* Circumference of the circle (2 * pi * 50) */
+            stroke-dashoffset: 314; /* Start with the gauge empty */
+            transition: stroke-dashoffset 1s ease-in-out;
+        }
+
+        /* --- Tooltip Styling --- */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            border-bottom: 1px dotted #6b7280; /* gray-500 */
+        }
+
+        .tooltip .tooltip-text {
+            visibility: hidden;
+            width: 220px;
+            background-color: #1f2937; /* gray-800 */
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -110px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+        }
+        
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        .close-tooltip {
+            position: absolute;
+            top: 2px;
+            right: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        
+        <!-- Header Section -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-gray-900 mb-2">How We Score Language Models</h1>
+            <p class="text-lg text-gray-600">An interactive guide to common evaluation metrics.</p>
+        </header>
+
+        <!-- Progress Tracker Section -->
+        <div class="mb-8 p-4 bg-white rounded-xl shadow-md">
+            <h2 class="text-lg font-semibold mb-2 text-gray-700">Your Progress</h2>
+            <div class="w-full bg-gray-200 rounded-full h-4">
+                <div id="progress-bar" class="bg-blue-600 h-4 rounded-full text-xs font-medium text-blue-100 text-center p-0.5 leading-none" style="width: 0%">0%</div>
+            </div>
+            <p class="text-sm text-gray-500 mt-1">Explore the metrics below to fill up the bar!</p>
+        </div>
+
+        <!-- Main Content Grid -->
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            <!-- Left Column: Metric Selector and Card Display -->
+            <div class="lg:col-span-2 space-y-8">
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <label for="metric-selector" class="block text-xl font-semibold text-gray-800 mb-3">1. Choose a Metric</label>
+                    <select id="metric-selector" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                        <option value="">-- Select a metric --</option>
+                        <option value="mmlu">MMLU (Massive Multitask Language Understanding)</option>
+                        <option value="arc">ARC (AI2 Reasoning Challenge)</option>
+                        <option value="bleu">BLEU (Bilingual Evaluation Understudy)</option>
+                        <option value="rouge">ROUGE (Recall-Oriented Understudy for Gisting Evaluation)</option>
+                        <option value="bertscore">BERTScore</option>
+                    </select>
+                </div>
+
+                <!-- Metric Card Container -->
+                <div id="metric-card-container" class="min-h-[400px]">
+                    <!-- Cards will be dynamically inserted here -->
+                </div>
+            </div>
+
+            <!-- Right Column: Sandbox and Quiz -->
+            <div class="space-y-8">
+                <!-- Interactive Sandbox -->
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">2. Interactive Sandbox</h2>
+                    <div id="sandbox-content">
+                        <p class="text-gray-500">Select a metric like BLEU or BERTScore to activate this sandbox.</p>
+                    </div>
+                </div>
+
+                <!-- Knowledge Quiz -->
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-2">3. Knowledge-Quiz Demo</h2>
+                    <p class="text-gray-600 mb-4">See how models perform on reasoning tasks. This demo uses a sample question from the <span class="font-semibold">ARC</span> dataset.</p>
+                    <button id="load-quiz-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+                        Try a Sample Question
+                    </button>
+                    <div id="quiz-container" class="mt-4 hidden">
+                        <!-- Quiz content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        // --- DOM Element References ---
+        const metricSelector = document.getElementById('metric-selector');
+        const cardContainer = document.getElementById('metric-card-container');
+        const sandboxContent = document.getElementById('sandbox-content');
+        const loadQuizBtn = document.getElementById('load-quiz-btn');
+        const quizContainer = document.getElementById('quiz-container');
+        const progressBar = document.getElementById('progress-bar');
+        
+        // --- State Management ---
+        const exploredMetrics = new Set();
+        const totalMetrics = metricSelector.options.length - 1; // Exclude the placeholder
+
+        // --- Data Definitions ---
+        // This object holds all the information for each metric.
+        const metricsData = {
+            mmlu: {
+                name: 'MMLU',
+                fullName: 'Massive Multitask Language Understanding',
+                definition: 'MMLU measures multitask accuracy across 57 subjects (like math, history, law, ethics). It evaluates a model\'s acquired knowledge and problem-solving ability on a massive scale.',
+                formula: '$$ \\text{Accuracy} = \\frac{\\text{Number of Correct Answers}}{\\text{Total Number of Questions}} $$',
+                whenToUse: 'Use to assess a model\'s broad, general knowledge and reasoning across diverse academic and professional domains.',
+                tooltips: {}
+            },
+            arc: {
+                name: 'ARC',
+                fullName: 'AI2 Reasoning Challenge',
+                definition: 'ARC evaluates a model\'s ability to answer complex, grade-school level science questions that require reasoning. It focuses on questions that are hard to answer with simple retrieval algorithms.',
+                formula: '$$ \\text{Accuracy} = \\frac{\\text{Correctly Answered Questions}}{\\text{Total Questions}} $$',
+                whenToUse: 'Use to test a model\'s deep reasoning and commonsense understanding, especially for complex question-answering.',
+                tooltips: {}
+            },
+            bleu: {
+                name: 'BLEU',
+                fullName: 'Bilingual Evaluation Understudy',
+                definition: 'BLEU measures how similar a machine-translated text is to one or more high-quality human translations. It counts matching <span class="tooltip" data-text="A sequence of \'n\' adjacent words. A 1-gram is a single word, a 2-gram is a two-word phrase, etc.">n-grams</span> between the candidate and reference translations.',
+                formula: '$$ \\text{BLEU} = \\text{BP} \\cdot \\exp\\left(\\sum_{n=1}^{N} w_n \\log p_n\\right) $$ <p class="text-sm mt-2 text-gray-500">Where BP is the Brevity Penalty and \\(p_n\\) is the modified n-gram precision.</p>',
+                whenToUse: 'Use for evaluating machine translation quality, but also useful for summarization and text generation tasks.',
+                tooltips: {
+                    'n-grams': 'A sequence of \'n\' adjacent words. A 1-gram is a single word (unigram), a 2-gram is a two-word phrase (bigram), etc.'
+                }
+            },
+            rouge: {
+                name: 'ROUGE',
+                fullName: 'Recall-Oriented Understudy for Gisting Evaluation',
+                definition: 'ROUGE is a set of metrics used for evaluating automatic summarization and machine translation. It works by comparing a model-generated summary against one or more human-created reference summaries, focusing on <span class="tooltip" data-text="Recall measures how many of the important words from the reference text were captured by the model.">recall</span>.',
+                formula: '$$ \\text{ROUGE-N} = \\frac{\\sum_{\\text{ref}} \\sum_{\\text{n-gram}} \\text{Count}_{\text{match}}(\\text{n-gram})}{\\sum_{\\text{ref}} \\sum_{\\text{n-gram}} \\text{Count}(\\text{n-gram})} $$',
+                whenToUse: 'Primarily used for evaluating the quality of text summaries, but also applicable to other text generation tasks.',
+                tooltips: {
+                    'recall': 'In this context, recall measures how many of the n-grams in the human reference summary are also found in the model\'s summary.'
+                }
+            },
+            bertscore: {
+                name: 'BERTScore',
+                fullName: 'BERTScore',
+                definition: 'BERTScore evaluates text generation by computing the similarity of contextual embeddings (like those from BERT) for tokens in the candidate and reference sentences. It overcomes limitations of <span class="tooltip" data-text="Exact match metrics like BLEU can fail to give credit for synonyms or paraphrasing (e.g., \'car\' vs \'automobile\').">exact-match</span> metrics by understanding synonyms and paraphrasing.',
+                formula: '$$ R_{\\text{BERT}} = \\frac{1}{|x|} \\sum_{x_i \\in x} \\max_{y_j \\in y} \\mathbf{x}_i^T \\mathbf{y}_j $$ <p class="text-sm mt-2 text-gray-500">This formula shows recall; a similar one exists for precision, and they are combined for the final F1 score.</p>',
+                whenToUse: 'Use when semantic similarity is more important than exact word overlap, such as in paraphrasing or creative text generation.',
+                tooltips: {
+                    'exact-match': 'Metrics like BLEU or ROUGE rely on finding the exact same words or phrases, and can fail to give credit for synonyms (e.g., \'car\' vs \'automobile\').'
+                }
+            }
+        };
+        
+        const quizData = [
+            {
+                question: "Which of the following is a logical conclusion that can be made from the observation that a puddle of water on the sidewalk has disappeared on a sunny day?",
+                options: [
+                    "The water soaked into the concrete.",
+                    "The water was absorbed by passing animals.",
+                    "The water evaporated into the air.",
+                    "The water froze into a thin layer of ice."
+                ],
+                answer: 2, // index of the correct answer
+                modelPerformance: 92
+            },
+            {
+                question: "If a plant's leaves are turning yellow, which of these is the most likely cause that could be fixed by adding a substance to the soil?",
+                options: [
+                    "Lack of sunlight.",
+                    "Lack of nutrients.",
+                    "Overwatering.",
+                    "A plant disease."
+                ],
+                answer: 1,
+                modelPerformance: 88
+            }
+        ];
+        let currentQuiz = null;
+
+        // --- Event Listeners ---
+        metricSelector.addEventListener('change', handleMetricSelection);
+        loadQuizBtn.addEventListener('click', loadQuiz);
+
+        // --- Core Functions ---
+
+        /**
+         * Handles the selection of a new metric from the dropdown.
+         * It creates and displays the corresponding metric card.
+         */
+        function handleMetricSelection(e) {
+            const metricKey = e.target.value;
+            if (!metricKey) {
+                cardContainer.innerHTML = ''; // Clear card if placeholder is selected
+                sandboxContent.innerHTML = '<p class="text-gray-500">Select a metric like BLEU or BERTScore to activate this sandbox.</p>';
+                return;
+            }
+            
+            createMetricCard(metricKey);
+            updateProgress(metricKey);
+            setupSandbox(metricKey);
+        }
+
+        /**
+         * Creates the HTML for a metric card and injects it into the DOM.
+         * It also handles the card flip animation.
+         */
+        function createMetricCard(metricKey) {
+            const data = metricsData[metricKey];
+            if (!data) return;
+
+            // Create the card with a flip container
+            const card = document.createElement('div');
+            card.className = 'flip-card h-[420px]';
+            card.id = `card-${metricKey}`;
+            
+            // Tooltip-enabled definition
+            let definitionHtml = data.definition;
+            if (data.tooltips) {
+                for (const [term, text] of Object.entries(data.tooltips)) {
+                    const regex = new RegExp(`(${term})`, 'g');
+                    definitionHtml = definitionHtml.replace(regex, `<span class="tooltip" data-text="${text}">$1</span>`);
+                }
+            }
+
+            card.innerHTML = `
+                <div class="flip-card-inner">
+                    <div class="flip-card-front bg-white p-6 rounded-xl shadow-md flex flex-col justify-center items-center text-center">
+                        <h2 class="text-3xl font-bold text-blue-600">${data.name}</h2>
+                        <p class="text-lg text-gray-500">${data.fullName}</p>
+                        <p class="mt-4 text-gray-700">Click to see details</p>
+                    </div>
+                    <div class="flip-card-back bg-white p-6 rounded-xl shadow-lg overflow-y-auto">
+                        <h3 class="text-2xl font-bold mb-2">${data.name}: ${data.fullName}</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="font-semibold text-lg text-gray-700">Definition</h4>
+                                <p class="text-gray-600">${definitionHtml}</p>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-lg text-gray-700">Formula</h4>
+                                <div class="text-gray-600 p-3 bg-gray-50 rounded-md text-center">${data.formula}</div>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-lg text-gray-700">When to Use</h4>
+                                <p class="text-gray-600 italic">"${data.whenToUse}"</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            cardContainer.innerHTML = ''; // Clear previous card
+            cardContainer.appendChild(card);
+
+            // Trigger the flip after a short delay to ensure the element is in the DOM
+            setTimeout(() => {
+                card.classList.add('flipped');
+                MathJax.typesetPromise(); // Re-render math formulas
+                initializeTooltips(); // Add event listeners to new tooltips
+            }, 100);
+        }
+        
+        /**
+         * Initializes tooltips by adding a close button and its click listener.
+         * This makes the tooltips dismissible.
+         */
+        function initializeTooltips() {
+            document.querySelectorAll('.tooltip').forEach(tooltipEl => {
+                const tooltipText = tooltipEl.getAttribute('data-text');
+                const existingTooltip = tooltipEl.querySelector('.tooltip-text');
+                if (existingTooltip) {
+                    tooltipEl.removeChild(existingTooltip);
+                }
+                
+                const span = document.createElement('span');
+                span.className = 'tooltip-text';
+                span.innerHTML = `${tooltipText} <span class="close-tooltip">×</span>`;
+                tooltipEl.appendChild(span);
+
+                span.querySelector('.close-tooltip').addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent tooltip from re-opening on click
+                    span.style.visibility = 'hidden';
+                    span.style.opacity = '0';
+                });
+            });
+        }
+
+        /**
+         * Updates the progress bar when a new metric is explored.
+         */
+        function updateProgress(metricKey) {
+            if (!exploredMetrics.has(metricKey)) {
+                exploredMetrics.add(metricKey);
+                const percentage = Math.round((exploredMetrics.size / totalMetrics) * 100);
+                progressBar.style.width = `${percentage}%`;
+                progressBar.textContent = `${percentage}%`;
+            }
+        }
+
+        /**
+         * Sets up the interactive sandbox based on the selected metric.
+         * Provides text areas and a gauge for metrics like BLEU and BERTScore.
+         */
+        function setupSandbox(metricKey) {
+            if (metricKey === 'bleu' || metricKey === 'bertscore') {
+                sandboxContent.innerHTML = `
+                    <div class="space-y-4">
+                        <div>
+                            <label for="reference-text" class="block text-sm font-medium text-gray-700">Reference Answer</label>
+                            <textarea id="reference-text" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+                        </div>
+                        <div>
+                            <label for="model-text" class="block text-sm font-medium text-gray-700">Model Answer</label>
+                            <textarea id="model-text" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+                        </div>
+                        <button id="compute-score-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">Compute ${metricsData[metricKey].name}</button>
+                        <div class="flex justify-center items-center mt-4 flex-col">
+                            <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                                <circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="10" />
+                                <circle id="gauge-meter" class="gauge-meter" cx="60" cy="60" r="50" fill="none" stroke="#10b981" stroke-width="10" stroke-linecap="round" />
+                            </svg>
+                            <p id="score-display" class="text-2xl font-bold mt-2 text-gray-700">0.00</p>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('compute-score-btn').addEventListener('click', () => computeMockScore(metricKey));
+            } else {
+                sandboxContent.innerHTML = `<p class="text-gray-500">The sandbox is for metrics like BLEU and BERTScore that compare generated text to a reference. Select one of them to try it out.</p>`;
+            }
+        }
+        
+        /**
+         * Computes a simplified, mock score to demonstrate the concept.
+         * This is NOT a real implementation but provides an interactive feel.
+         */
+        function computeMockScore(metricKey) {
+            const refText = document.getElementById('reference-text').value.toLowerCase().trim();
+            const modelText = document.getElementById('model-text').value.toLowerCase().trim();
+            const gaugeMeter = document.getElementById('gauge-meter');
+            const scoreDisplay = document.getElementById('score-display');
+
+            if (!refText || !modelText) {
+                alert("Please enter both a reference and a model answer.");
+                return;
+            }
+
+            let score = 0;
+            const refWords = new Set(refText.split(/\s+/));
+            const modelWords = modelText.split(/\s+/);
+
+            if (metricKey === 'bleu') {
+                // Mock BLEU: Simple unigram and bigram overlap
+                let matches = 0;
+                modelWords.forEach(word => {
+                    if (refWords.has(word)) {
+                        matches++;
+                    }
+                });
+                const unigramPrecision = matches / modelWords.length;
+                // Add a small factor for length similarity
+                const lengthRatio = Math.min(1, modelWords.length / refWords.size);
+                score = unigramPrecision * lengthRatio;
+            } else if (metricKey === 'bertscore') {
+                // Mock BERTScore: Higher score for more word overlap, even higher for same order
+                let overlap = 0;
+                const modelWordSet = new Set(modelWords);
+                refWords.forEach(word => {
+                    if(modelWordSet.has(word)) {
+                        overlap++;
+                    }
+                });
+                let semanticScore = overlap / refWords.size;
+                
+                // Bonus for sequence matching
+                if (refText.includes(modelText) || modelText.includes(refText)) {
+                    semanticScore = Math.min(1.0, semanticScore + 0.2);
+                }
+                score = semanticScore;
+            }
+            
+            score = Math.min(1, Math.max(0, score)); // Clamp score between 0 and 1
+
+            // Update gauge
+            const circumference = 2 * Math.PI * 50; // 314
+            const offset = circumference - (score * circumference);
+            gaugeMeter.style.strokeDashoffset = offset;
+            
+            // Animate score display
+            let start = parseFloat(scoreDisplay.textContent);
+            let end = score;
+            let duration = 1000;
+            let startTime = null;
+
+            function animate(currentTime) {
+                if (startTime === null) startTime = currentTime;
+                let elapsedTime = currentTime - startTime;
+                let progress = Math.min(elapsedTime / duration, 1);
+                let currentScore = start + (end - start) * progress;
+                scoreDisplay.textContent = currentScore.toFixed(2);
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        /**
+         * Loads a random ARC quiz question into the quiz container.
+         */
+        function loadQuiz() {
+            currentQuiz = quizData[Math.floor(Math.random() * quizData.length)];
+            quizContainer.classList.remove('hidden');
+            
+            let optionsHtml = currentQuiz.options.map((option, index) => `
+                <button data-index="${index}" class="quiz-option block w-full text-left p-3 my-2 bg-gray-100 rounded-lg hover:bg-blue-100 border border-transparent focus:border-blue-500 focus:ring-2 focus:ring-blue-300 transition">
+                    ${option}
+                </button>
+            `).join('');
+
+            quizContainer.innerHTML = `
+                <p class="font-semibold text-gray-700 mb-2">${currentQuiz.question}</p>
+                <div id="quiz-options">${optionsHtml}</div>
+                <div id="quiz-result" class="mt-4 hidden p-4 rounded-lg"></div>
+            `;
+            
+            document.querySelectorAll('.quiz-option').forEach(button => {
+                button.addEventListener('click', handleQuizAnswer);
+            });
+        }
+        
+        /**
+         * Handles the user's answer selection in the quiz.
+         * Displays whether the answer was correct and shows model performance data.
+         */
+        function handleQuizAnswer(e) {
+            const selectedIndex = parseInt(e.currentTarget.dataset.index);
+            const resultContainer = document.getElementById('quiz-result');
+            
+            // Disable all buttons after one is clicked
+            document.querySelectorAll('.quiz-option').forEach(btn => {
+                btn.disabled = true;
+                btn.classList.remove('hover:bg-blue-100');
+                // Highlight correct and incorrect answers
+                if (parseInt(btn.dataset.index) === currentQuiz.answer) {
+                    btn.classList.add('bg-green-200', 'border-green-400');
+                }
+                if (parseInt(btn.dataset.index) === selectedIndex && selectedIndex !== currentQuiz.answer) {
+                    btn.classList.add('bg-red-200', 'border-red-400');
+                }
+            });
+
+            if (selectedIndex === currentQuiz.answer) {
+                resultContainer.innerHTML = `<p class="font-bold text-green-800">Correct!</p><p class="text-green-700">Advanced models get this right about ${currentQuiz.modelPerformance}% of the time.</p>`;
+                resultContainer.className = 'mt-4 p-4 rounded-lg bg-green-100';
+            } else {
+                resultContainer.innerHTML = `<p class="font-bold text-red-800">Not quite.</p><p class="text-red-700">This is a tricky reasoning question. The correct answer is highlighted in green.</p>`;
+                resultContainer.className = 'mt-4 p-4 rounded-lg bg-red-100';
+            }
+            resultContainer.classList.remove('hidden');
+        }
+    });
+    </script>
+
+</body>
+</html>
